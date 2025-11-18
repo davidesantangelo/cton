@@ -1,4 +1,3 @@
-````markdown
 # CTON
 
 CTON (Compact Token-Oriented Notation) is an aggressively minified, JSON-compatible wire format that keeps prompts short without giving up schema hints. It is shape-preserving (objects, arrays, scalars, table-like arrays) and deterministic, so you can safely round-trip between Ruby hashes and compact strings that work well in LLM prompts.
@@ -108,4 +107,3 @@ Bug reports and pull requests are welcome at https://github.com/davidesantangelo
 ## License
 
 MIT © Davide Santangelo
-````
