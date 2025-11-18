@@ -4,8 +4,80 @@ module Cton
   class EncodeError < Error; end
   class ParseError < Error; end
 
-  def self.dump: (untyped, ?Hash[Symbol, untyped]) -> String
-  def self.generate: (untyped, ?Hash[Symbol, untyped]) -> String
-  def self.load: (String, ?symbolize_names: bool) -> untyped
-  def self.parse: (String, ?symbolize_names: bool) -> untyped
+  def self.dump: (untyped payload, ?Hash[Symbol, untyped] options) -> String
+  def self.generate: (untyped payload, ?Hash[Symbol, untyped] options) -> String
+  def self.load: (String cton_string, ?symbolize_names: bool) -> untyped
+  def self.parse: (String cton_string, ?symbolize_names: bool) -> untyped
+
+  class Encoder
+    SAFE_TOKEN: Regexp
+    NUMERIC_TOKEN: Regexp
+    RESERVED_LITERALS: Array[String]
+    FLOAT_DECIMAL_PRECISION: Integer
+
+    def initialize: (?separator: String) -> void
+    def encode: (untyped payload) -> String
+
+    private
+    attr_reader separator: String
+    attr_reader io: StringIO
+
+    def encode_root: (untyped value) -> void
+    def encode_top_level_pair: (String | Symbol key, untyped value) -> void
+    def encode_value: (untyped value, context: Symbol) -> void
+    def encode_object: (Hash[untyped, untyped] hash) -> void
+    def encode_array: (Array[untyped] list) -> void
+    def encode_table: (Array[Hash[untyped, untyped]] rows) -> void
+    def encode_scalar_list: (Array[untyped] list) -> void
+    def encode_mixed_list: (Array[untyped] list) -> void
+    def encode_scalar: (untyped value) -> void
+    def encode_string: (String value) -> void
+    def format_number: (Numeric value) -> String
+    def normalize_decimal_string: (String string) -> String
+    def zero_string?: (String string) -> bool
+    def float_decimal_string: (Numeric value) -> String
+    def format_key: (String | Symbol key) -> String
+    def string_needs_quotes?: (String value) -> bool
+    def numeric_like?: (String value) -> bool
+    def quote_string: (String value) -> String
+    def escape_string: (String value) -> String
+    def scalar?: (untyped value) -> bool
+    def table_candidate?: (Array[untyped] rows) -> bool
+  end
+
+  class Decoder
+    TERMINATORS: Array[String]
+
+    def initialize: (?symbolize_names: bool) -> void
+    def decode: (String cton) -> untyped
+
+    private
+    attr_reader symbolize_names: bool
+    attr_reader scanner: StringScanner
+
+    def parse_document: -> Hash[untyped, untyped]
+    def parse_value_for_key: -> untyped
+    def parse_object: -> Hash[untyped, untyped]
+    def parse_array: -> Array[untyped]
+    def parse_header: -> Array[String | Symbol]
+    def parse_table_rows: (Integer length, Array[String | Symbol] header) -> Array[Hash[untyped, untyped]]
+    def parse_array_elements: (Integer length) -> Array[untyped]
+    def parse_value: (?allow_key_boundary: bool) -> untyped
+    def parse_scalar: (?allow_key_boundary: bool) -> untyped
+    def scan_until_terminator: -> String?
+    def scan_until_boundary_or_terminator: -> String?
+    def find_key_boundary: (Integer from_index) -> Integer?
+    def convert_scalar: (String token) -> untyped
+    def parse_string: -> String
+    def parse_key_name: -> (String | Symbol)
+    def parse_integer_literal: -> Integer
+    def symbolize_keys: (Hash[untyped, untyped] row) -> Hash[untyped, untyped]
+    def expect!: (String char) -> void
+    def skip_ws: -> void
+    def whitespace?: (String char) -> bool
+    def key_ahead?: -> bool
+    def safe_key_char?: (String? char) -> bool
+    def integer?: (String token) -> bool
+    def float?: (String token) -> bool
+  end
 end

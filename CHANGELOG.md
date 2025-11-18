@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] - 2025-11-18
+
+### Changed
+
+- **Performance**: Refactored `Encoder` to use `StringIO` and `Decoder` to use `StringScanner` for significantly improved performance and memory usage.
+- **Architecture**: Split `Cton` module into dedicated `Cton::Encoder` and `Cton::Decoder` classes for better maintainability.
+
+### Fixed
+
+- **Parsing**: Fixed an issue where unterminated strings were not correctly detected.
+- **Whitespace**: Improved whitespace handling in the decoder, specifically fixing issues with whitespace between keys and structure markers.
+
+### Added
+
+- **Type Safety**: Added comprehensive RBS signatures (`sig/cton.rbs`) for better IDE support and static analysis.
+- **Tests**: Expanded test coverage for validation, complex tables, mixed arrays, unicode values, and error cases.
+
 ## [0.1.0] - 2025-11-18
 
 ### Added

@@ -238,4 +238,95 @@ RSpec.describe Cton do
       expect(Cton.load(encoded)).to eq(payload)
     end
   end
+
+  describe "extended coverage" do
+    context "validation" do
+      it "raises error for keys with invalid characters" do
+        expect { Cton.dump("invalid key" => 1) }.to raise_error(Cton::EncodeError)
+        expect { Cton.dump("key!" => 1) }.to raise_error(Cton::EncodeError)
+      end
+
+      it "raises error for keys with unicode characters" do
+        expect { Cton.dump("héllo" => 1) }.to raise_error(Cton::EncodeError)
+      end
+    end
+
+    context "complex tables" do
+      it "handles tables with values needing quoting" do
+        data = {
+          "users" => [
+            { "name" => "Doe, John", "bio" => "A;B" },
+            { "name" => "Smith, Jane", "bio" => "C,D" }
+          ]
+        }
+        encoded = Cton.dump(data)
+        expect(encoded).to include('users[2]{name,bio}="Doe, John","A;B";"Smith, Jane","C,D"')
+        expect(Cton.load(encoded)).to eq(data)
+      end
+
+      it "falls back to object list if hash keys are unordered" do
+        data = {
+          "items" => [
+            { "a" => 1, "b" => 2 },
+            { "b" => 4, "a" => 3 }
+          ]
+        }
+        # Keys are different ([a,b] vs [b,a]), so not a table candidate
+        encoded = Cton.dump(data)
+        expect(encoded).to include("items[2]=(a=1,b=2),(b=4,a=3)")
+        expect(Cton.load(encoded)).to eq(data)
+      end
+    end
+
+    context "mixed arrays" do
+      it "handles arrays with mixed types" do
+        data = {
+          "mixed" => [
+            1,
+            "string",
+            { "a" => 1 },
+            [1, 2],
+            true,
+            nil
+          ]
+        }
+        encoded = Cton.dump(data)
+        expect(Cton.load(encoded)).to eq(data)
+      end
+    end
+
+    context "unicode values" do
+      it "correctly round-trips unicode strings" do
+        data = { "message" => "Hello 🌍", "symbols" => "←↑→↓" }
+        encoded = Cton.dump(data)
+        expect(Cton.load(encoded)).to eq(data)
+      end
+    end
+
+    context "whitespace handling" do
+      it "parses with excessive whitespace" do
+        cton = <<~CTON
+          user (
+            name = "John" ,
+            age = 30
+          )
+        CTON
+        expect(Cton.load(cton)).to eq({ "user" => { "name" => "John", "age" => 30 } })
+      end
+    end
+
+    context "additional error cases" do
+      it "raises on missing value after assignment" do
+        expect { Cton.load("key=") }.to raise_error(Cton::ParseError)
+      end
+
+      it "raises on incomplete array" do
+        expect { Cton.load("arr[2]=1") }.to raise_error(Cton::ParseError)
+      end
+
+      it "raises on invalid array length" do
+        expect { Cton.load("arr[a]=1") }.to raise_error(Cton::ParseError)
+      end
+    end
+  end
 end

@@ -90,12 +90,16 @@ Following the TOON specification's guardrails, the encoder now:
 - Canonicalizes float/BigDecimal output: no exponent notation, no trailing zeros, and `-0` collapses to `0`.
 - Converts `NaN` and `±Infinity` inputs to `null`, matching TOON's normalization guidance so downstream decoders don't explode on non-finite numbers.
 
+## Type Safety
+
+CTON ships with RBS signatures (`sig/cton.rbs`) to support type checking and IDE autocompletion.
+
 ## Development
 
 ```bash
-bin/setup   # install dependencies
-bundle exec rspec
-bin/console # interactive playground
+bin/setup        # install dependencies
+bundle exec rake # run tests and rubocop
+bin/console      # interactive playground
 ```
 
 To release a new version, bump `Cton::VERSION` and run `bundle exec rake release`.
