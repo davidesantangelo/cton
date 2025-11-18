@@ -1,0 +1,11 @@
+module Cton
+  VERSION: String
+  class Error < ::StandardError; end
+  class EncodeError < Error; end
+  class ParseError < Error; end
+
+  def self.dump: (untyped, ?Hash[Symbol, untyped]) -> String
+  def self.generate: (untyped, ?Hash[Symbol, untyped]) -> String
+  def self.load: (String, ?symbolize_names: bool) -> untyped
+  def self.parse: (String, ?symbolize_names: bool) -> untyped
+end
