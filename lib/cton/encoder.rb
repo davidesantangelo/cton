@@ -1,27 +1,31 @@
 # frozen_string_literal: true
 
 require "stringio"
+require "time"
+require "date"
 
 module Cton
   class Encoder
-    SAFE_TOKEN = /\A[0-9A-Za-z_.:-]+\z/.freeze
-    NUMERIC_TOKEN = /\A-?(?:\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?\z/.freeze
+    SAFE_TOKEN = /\A[0-9A-Za-z_.:-]+\z/
+    NUMERIC_TOKEN = /\A-?(?:\d+)(?:\.\d+)?(?:[eE][+-]?\d+)?\z/
     RESERVED_LITERALS = %w[true false null].freeze
     FLOAT_DECIMAL_PRECISION = Float::DIG
 
-    def initialize(separator: "\n")
+    def initialize(separator: "\n", pretty: false)
       @separator = separator || ""
+      @pretty = pretty
+      @indent_level = 0
     end
 
-    def encode(payload)
-      @io = StringIO.new
+    def encode(payload, io: nil)
+      @io = io || StringIO.new
       encode_root(payload)
-      @io.string
+      @io.string if @io.is_a?(StringIO)
     end
 
     private
 
-    attr_reader :separator, :io
+    attr_reader :separator, :io, :pretty, :indent_level
 
     def encode_root(value)
       case value
@@ -43,6 +47,12 @@ module Cton
     end
 
     def encode_value(value, context:)
+      if defined?(Set) && value.is_a?(Set)
+        value = value.to_a
+      elsif defined?(OpenStruct) && value.is_a?(OpenStruct)
+        value = value.to_h
+      end
+
       case value
       when Hash
         encode_object(value)
@@ -61,13 +71,19 @@ module Cton
       end
 
       io << "("
+      indent if pretty
       first = true
       hash.each do |key, value|
-        io << "," unless first
+        if first
+          first = false
+        else
+          io << ","
+          newline if pretty
+        end
         io << format_key(key) << "="
         encode_value(value, context: :object)
-        first = false
       end
+      outdent if pretty
       io << ")"
     end
 
@@ -98,35 +114,63 @@ module Cton
       io << header.map { |key| format_key(key) }.join(",")
       io << "}="
 
+      indent if pretty
       first_row = true
       rows.each do |row|
-        io << ";" unless first_row
+        if first_row
+          first_row = false
+        else
+          io << ";"
+          newline if pretty
+        end
+
         first_col = true
         header.each do |field|
           io << "," unless first_col
           encode_scalar(row.fetch(field))
           first_col = false
         end
-        first_row = false
       end
+      outdent if pretty
     end
 
     def encode_scalar_list(list)
-      first = true
-      list.each do |value|
-        io << "," unless first
-        encode_scalar(value)
-        first = false
+      if pretty
+        indent
+        first = true
+        list.each do |value|
+          if first
+            first = false
+          else
+            io << ","
+            newline
+          end
+          encode_scalar(value)
+        end
+        outdent
+      else
+        first = true
+        list.each do |value|
+          io << "," unless first
+          encode_scalar(value)
+          first = false
+        end
       end
     end
 
     def encode_mixed_list(list)
+      indent if pretty
       first = true
       list.each do |value|
-        io << "," unless first
+        if first
+          first = false
+        else
+          io << ","
+          newline if pretty
+        end
         encode_value(value, context: :array)
-        first = false
       end
+      outdent if pretty
     end
 
     def encode_scalar(value)
@@ -139,19 +183,21 @@ module Cton
         io << "null"
       when Numeric
         io << format_number(value)
+      when Time, Date
+        encode_string(value.iso8601)
       else
         raise EncodeError, "Unsupported value: #{value.class}"
       end
     end
 
     def encode_string(value)
-      if value.empty?
-        io << '""'
-      elsif string_needs_quotes?(value)
-        io << quote_string(value)
-      else
-        io << value
-      end
+      io << if value.empty?
+              '""'
+            elsif string_needs_quotes?(value)
+              quote_string(value)
+            else
+              value
+            end
     end
 
     def format_number(value)
@@ -172,7 +218,7 @@ module Cton
     end
 
     def normalize_decimal_string(string)
-      stripped = string.start_with?("+") ? string[1..-1] : string
+      stripped = string.start_with?("+") ? string[1..] : string
       return "0" if zero_string?(stripped)
 
       if stripped.include?(".")
@@ -197,14 +243,14 @@ module Cton
 
     def format_key(key)
       key_string = key.to_s
-      unless SAFE_TOKEN.match?(key_string)
-        raise EncodeError, "Invalid key: #{key_string.inspect}"
-      end
+      raise EncodeError, "Invalid key: #{key_string.inspect}" unless SAFE_TOKEN.match?(key_string)
+
       key_string
     end
 
     def string_needs_quotes?(value)
       return true unless SAFE_TOKEN.match?(value)
+
       RESERVED_LITERALS.include?(value) || numeric_like?(value)
     end
 
@@ -229,7 +275,7 @@ module Cton
     end
 
     def scalar?(value)
-      value.is_a?(String) || value.is_a?(Numeric) || value == true || value == false || value.nil?
+      value.is_a?(String) || value.is_a?(Numeric) || value == true || value == false || value.nil? || value.is_a?(Time) || value.is_a?(Date)
     end
 
     def table_candidate?(rows)
@@ -242,6 +288,20 @@ module Cton
       rows.all? do |row|
         row.is_a?(Hash) && row.keys == keys && row.values.all? { |val| scalar?(val) }
       end
+    end
+
+    def indent
+      @indent_level += 1
+      newline
+    end
+
+    def outdent
+      @indent_level -= 1
+      newline
+    end
+
+    def newline
+      io << "\n" << ("  " * indent_level)
     end
   end
 end

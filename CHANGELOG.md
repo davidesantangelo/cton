@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2025-11-19
+
+### Added
+
+- **CLI Tool**: New `bin/cton` executable for converting between JSON and CTON from the command line. Supports auto-detection, pretty printing, and file I/O.
+- **Streaming IO**: `Cton.dump` now accepts an `IO` object as the second argument (or via `io:` keyword), allowing direct writing to files or sockets without intermediate string allocation.
+- **Pretty Printing**: Added `pretty: true` option to `Cton.dump` to format output with indentation and newlines for better readability.
+- **Extended Types**: Native support for `Time`, `Date` (ISO8601), `Set` (as Array), and `OpenStruct` (as Object).
+- **Enhanced Error Reporting**: `ParseError` now includes line and column numbers to help locate syntax errors in large documents.
+
+### Changed
+
+- **Ruby 3 Compatibility**: Improved argument handling in `Cton.dump` to robustly support Ruby 3 keyword arguments when passing hashes.
+
 ## [0.1.1] - 2025-11-18
 
 ### Changed

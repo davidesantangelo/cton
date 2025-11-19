@@ -12,9 +12,12 @@ RSpec.describe Cton do
       },
       "friends" => %w[ana luis sam],
       "hikes" => [
-        { "id" => 1, "name" => "Blue Lake Trail", "distanceKm" => 7.5, "elevationGain" => 320, "companion" => "ana", "wasSunny" => true },
-        { "id" => 2, "name" => "Ridge Overlook", "distanceKm" => 9.2, "elevationGain" => 540, "companion" => "luis", "wasSunny" => false },
-        { "id" => 3, "name" => "Wildflower Loop", "distanceKm" => 5.1, "elevationGain" => 180, "companion" => "sam", "wasSunny" => true }
+        { "id" => 1, "name" => "Blue Lake Trail", "distanceKm" => 7.5, "elevationGain" => 320, "companion" => "ana",
+          "wasSunny" => true },
+        { "id" => 2, "name" => "Ridge Overlook", "distanceKm" => 9.2, "elevationGain" => 540, "companion" => "luis",
+          "wasSunny" => false },
+        { "id" => 3, "name" => "Wildflower Loop", "distanceKm" => 5.1, "elevationGain" => 180, "companion" => "sam",
+          "wasSunny" => true }
       ]
     }
   end
@@ -22,7 +25,7 @@ RSpec.describe Cton do
   let(:sample_cton) do
     [
       'context(task="Our favorite hikes together",location=Boulder,season=spring_2025)',
-      'friends[3]=ana,luis,sam',
+      "friends[3]=ana,luis,sam",
       'hikes[3]{id,name,distanceKm,elevationGain,companion,wasSunny}=1,"Blue Lake Trail",7.5,320,ana,true;2,"Ridge Overlook",9.2,540,luis,false;3,"Wildflower Loop",5.1,180,sam,true'
     ].join("\n")
   end
@@ -89,9 +92,8 @@ RSpec.describe Cton do
 
       it "supports BigDecimal serialization" do
         payload = { "price" => BigDecimal("12.3400") }
-        expect(Cton.dump(payload)).to eq('price=12.34')
+        expect(Cton.dump(payload)).to eq("price=12.34")
       end
-
     end
 
     context "number normalization" do
@@ -140,7 +142,7 @@ RSpec.describe Cton do
           ]
         }
 
-        expect(Cton.dump(payload)).to eq('rows[2]{a,b}=1,2;3,4')
+        expect(Cton.dump(payload)).to eq("rows[2]{a,b}=1,2;3,4")
       end
 
       it "leaves heterogeneous arrays as nested objects" do
@@ -151,7 +153,7 @@ RSpec.describe Cton do
           ]
         }
 
-        expect(Cton.dump(payload)).to eq('rows[2]=(a=1),(b=2)')
+        expect(Cton.dump(payload)).to eq("rows[2]=(a=1),(b=2)")
       end
     end
   end
@@ -169,7 +171,7 @@ RSpec.describe Cton do
       end
 
       it "parses nested arrays and objects" do
-        cton = 'payload(meta=(count=2,flags=[2]=true,false),items=[2]=(id=1,details=(notes=[2]=alpha,beta)),(id=2,details=(notes=[0]=)))'
+        cton = "payload(meta=(count=2,flags=[2]=true,false),items=[2]=(id=1,details=(notes=[2]=alpha,beta)),(id=2,details=(notes=[0]=)))"
         parsed = Cton.load(cton)
 
         expect(parsed).to eq(
@@ -184,7 +186,7 @@ RSpec.describe Cton do
       end
 
       it "parses inline documents when callers add manual separators" do
-        inline = 'alpha(value=1) beta[2]=true,false gamma()'
+        inline = "alpha(value=1) beta[2]=true,false gamma()"
         expect(Cton.load(inline)).to eq(
           "alpha" => { "value" => 1 },
           "beta" => [true, false],
@@ -195,11 +197,11 @@ RSpec.describe Cton do
 
     context "error handling" do
       it "rejects arrays with fewer values than advertised" do
-        expect { Cton.load('friends[2]=ana') }.to raise_error(Cton::ParseError)
+        expect { Cton.load("friends[2]=ana") }.to raise_error(Cton::ParseError)
       end
 
       it "rejects malformed tables" do
-        expect { Cton.load('rows[1]{id,name}=42') }.to raise_error(Cton::ParseError)
+        expect { Cton.load("rows[1]{id,name}=42") }.to raise_error(Cton::ParseError)
       end
 
       it "rejects unterminated strings" do
@@ -215,7 +217,7 @@ RSpec.describe Cton do
   describe "round-trip guarantees" do
     it "round-trips nested payloads" do
       payload = {
-        "meta" => { "count" => 2, "labels" => ["alpha", "beta"] },
+        "meta" => { "count" => 2, "labels" => %w[alpha beta] },
         "items" => [
           { "id" => 1, "notes" => ["needs_review", { "priority" => "p1" }] },
           { "id" => 2, "notes" => [] }
@@ -326,6 +328,76 @@ RSpec.describe Cton do
 
       it "raises on invalid array length" do
         expect { Cton.load("arr[a]=1") }.to raise_error(Cton::ParseError)
+      end
+    end
+  end
+
+  describe "v0.2.0 features" do
+    context "pretty printing" do
+      it "formats output with indentation" do
+        data = { "user" => { "name" => "Davide", "age" => 30 } }
+        expected = <<~CTON.chomp
+          user(
+            name=Davide,
+            age=30
+          )
+        CTON
+        expect(Cton.dump(data, pretty: true)).to eq(expected)
+      end
+
+      it "formats tables with indentation" do
+        data = { "users" => [{ "name" => "A" }, { "name" => "B" }] }
+        expected = <<~CTON
+          users[2]{name}=
+            A;
+            B
+        CTON
+        expect(Cton.dump(data, pretty: true)).to eq(expected)
+      end
+    end
+
+    context "streaming IO" do
+      it "writes to an IO object" do
+        io = StringIO.new
+        Cton.dump({ "a" => 1 }, io)
+        expect(io.string).to eq("a=1")
+      end
+
+      it "supports IO as a keyword argument" do
+        io = StringIO.new
+        Cton.dump({ "a" => 1 }, io: io)
+        expect(io.string).to eq("a=1")
+      end
+    end
+
+    context "extended types" do
+      it "serializes Time as ISO8601 string" do
+        time = Time.utc(2025, 11, 19, 12, 0, 0)
+        expect(Cton.dump("t" => time)).to eq("t=2025-11-19T12:00:00Z")
+      end
+
+      it "serializes Date as ISO8601 string" do
+        date = Date.new(2025, 11, 19)
+        expect(Cton.dump("d" => date)).to eq("d=2025-11-19")
+      end
+
+      it "serializes Set as Array" do
+        require "set"
+        set = Set.new([1, 2])
+        expect(Cton.dump("s" => set)).to eq("s[2]=1,2")
+      end
+
+      it "serializes OpenStruct as Object" do
+        require "ostruct"
+        os = OpenStruct.new(a: 1)
+        expect(Cton.dump("o" => os)).to eq("o(a=1)")
+      end
+    end
+
+    context "enhanced error reporting" do
+      it "reports line and column number on error" do
+        cton = "key=value\nkey2=\"unclosed"
+        expect { Cton.load(cton) }.to raise_error(Cton::ParseError, /at line 2/)
       end
     end
   end

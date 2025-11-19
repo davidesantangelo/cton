@@ -1,0 +1,87 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "cton"
+require "json"
+require "optparse"
+
+options = {
+  mode: :auto,
+  pretty: false,
+  input: nil,
+  output: nil
+}
+
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: cton [options] [file]"
+
+  opts.on("-j", "--to-json", "Convert CTON to JSON") do
+    options[:mode] = :to_json
+  end
+
+  opts.on("-c", "--to-cton", "Convert JSON to CTON") do
+    options[:mode] = :to_cton
+  end
+
+  opts.on("-p", "--pretty", "Pretty print output") do
+    options[:pretty] = true
+  end
+
+  opts.on("-o", "--output FILE", "Output file") do |file|
+    options[:output] = file
+  end
+
+  opts.on("-v", "--version", "Show version") do
+    puts Cton::VERSION
+    exit
+  end
+
+  opts.on("-h", "--help", "Show this message") do
+    puts opts
+    exit
+  end
+end
+
+parser.parse!
+
+input_file = ARGV.first
+input_content = if input_file
+                  File.read(input_file)
+                else
+                  $stdin.read
+                end
+
+if options[:mode] == :auto
+  # Simple heuristic: if it starts with { or [, it's likely JSON.
+  stripped = input_content.strip
+  options[:mode] = if stripped.start_with?("{") || stripped.start_with?("[")
+                     :to_cton
+                   else
+                     :to_json
+                   end
+end
+
+result = nil
+
+begin
+  if options[:mode] == :to_cton
+    data = JSON.parse(input_content)
+    result = Cton.dump(data, pretty: options[:pretty])
+  else
+    data = Cton.load(input_content)
+    result = if options[:pretty]
+               JSON.pretty_generate(data)
+             else
+               JSON.generate(data)
+             end
+  end
+
+  if options[:output]
+    File.write(options[:output], result)
+  else
+    puts result
+  end
+rescue StandardError => e
+  warn "Error: #{e.message}"
+  exit 1
+end

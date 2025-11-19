@@ -12,9 +12,23 @@ module Cton
 
   module_function
 
-  def dump(payload, options = {})
+  def dump(payload, *args)
+    io = nil
+    options = {}
+
+    args.each do |arg|
+      if arg.is_a?(Hash)
+        options.merge!(arg)
+      else
+        io = arg
+      end
+    end
+
+    io ||= options[:io]
+
     separator = options.fetch(:separator, "\n")
-    Encoder.new(separator: separator).encode(payload)
+    pretty = options.fetch(:pretty, false)
+    Encoder.new(separator: separator, pretty: pretty).encode(payload, io: io)
   end
   alias generate dump
 
@@ -23,4 +37,3 @@ module Cton
   end
   alias parse load
 end
-

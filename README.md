@@ -157,9 +157,40 @@ symbolized = Cton.load(cton, symbolize_names: true)
 
 # Want a truly inline document? Opt in explicitly (decoding becomes unsafe for ambiguous cases).
 inline = Cton.dump(payload, separator: "")
+
+# Pretty print for human readability
+pretty = Cton.dump(payload, pretty: true)
+
+# Stream to an IO object (file, socket, etc.)
+File.open("data.cton", "w") do |f|
+  Cton.dump(payload, f)
+end
+```
+
+### CLI Tool
+
+CTON comes with a command-line tool for quick conversions:
+
+```bash
+# Convert JSON to CTON
+echo '{"hello": "world"}' | cton
+# => hello=world
+
+# Convert CTON to JSON
+echo 'hello=world' | cton --to-json
+# => {"hello":"world"}
+
+# Pretty print
+cton --pretty input.json
 ```
 
 ### Advanced Features
+
+#### Extended Types
+CTON natively supports serialization for:
+- `Time` and `Date` (ISO8601 strings)
+- `Set` (converted to Arrays)
+- `OpenStruct` (converted to Objects)
 
 #### Table detection
 Whenever an array is made of hashes that all expose the same scalar keys, the encoder flattens it into a table to save tokens. Mixed or nested arrays fall back to `[N]=(value1,value2,...)`.
