@@ -1,32 +1,113 @@
 # CTON
 
-CTON (Compact Token-Oriented Notation) is an aggressively minified, JSON-compatible wire format that keeps prompts short without giving up schema hints. It is shape-preserving (objects, arrays, scalars, table-like arrays) and deterministic, so you can safely round-trip between Ruby hashes and compact strings that work well in LLM prompts.
+[![Gem Version](https://badge.fury.io/rb/cton.svg)](https://badge.fury.io/rb/cton)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/davidesantangelo/cton/blob/master/LICENSE.txt)
+
+**CTON** (Compact Token-Oriented Notation) is an aggressively minified, JSON-compatible wire format that keeps prompts short without giving up schema hints. It is shape-preserving (objects, arrays, scalars, table-like arrays) and deterministic, so you can safely round-trip between Ruby hashes and compact strings that work well in LLM prompts.
+
+---
+
+## 📖 Table of Contents
+
+- [What is CTON?](#what-is-cton)
+- [Why another format?](#why-another-format)
+- [Examples](#examples)
+- [Token Savings](#token-savings-vs-json--toon)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Development](#development)
+- [Contributing](#contributing)
+- [License](#license)
+
+---
+
+## What is CTON?
+
+CTON is designed to be the most efficient way to represent structured data for Large Language Models (LLMs). It strips away the "syntactic sugar" of JSON that humans like (indentation, excessive quoting, braces) but machines don't strictly need, while adding "structural hints" that help LLMs generate valid output.
+
+### Key Concepts
+
+1.  **Root is Implicit**: No curly braces `{}` wrapping the entire document.
+2.  **Minimal Punctuation**:
+    *   Objects use `key=value`.
+    *   Nested objects use parentheses `(key=value)`.
+    *   Arrays use brackets with length `[N]=item1,item2`.
+3.  **Table Compression**: If an array contains objects with the same keys, CTON automatically converts it into a table format `[N]{header1,header2}=val1,val2;val3,val4`. This is a massive token saver for datasets.
+
+---
+
+## Examples
+
+### Simple Key-Value Pairs
+
+**JSON**
+```json
+{
+  "task": "planning",
+  "urgent": true,
+  "id": 123
+}
+```
+
+**CTON**
+```text
+task=planning,urgent=true,id=123
+```
+
+### Nested Objects
+
+**JSON**
+```json
+{
+  "user": {
+    "name": "Davide",
+    "settings": {
+      "theme": "dark"
+    }
+  }
+}
+```
+
+**CTON**
+```text
+user(name=Davide,settings(theme=dark))
+```
+
+### Arrays and Tables
+
+**JSON**
+```json
+{
+  "tags": ["ruby", "gem", "llm"],
+  "files": [
+    { "name": "README.md", "size": 1024 },
+    { "name": "lib/cton.rb", "size": 2048 }
+  ]
+}
+```
+
+**CTON**
+```text
+tags[3]=ruby,gem,llm
+files[2]{name,size}=README.md,1024;lib/cton.rb,2048
+```
+
+---
 
 ## Why another format?
 
 - **Less noise than YAML/JSON**: no indentation, no braces around the root, and optional quoting.
 - **Schema guardrails**: arrays carry their length (`friends[3]`) and table headers (`{id,name,...}`) so downstream parsing can verify shape.
 - **LLM-friendly**: works as a single string you can embed in a prompt together with short parsing instructions.
-- **Token savings**: CTON compounds the JSON → TOON savings; see the section below for concrete numbers.
+- **Token savings**: CTON compounds the JSON → TOON savings.
 
-## Token savings vs JSON & TOON
+### Token savings vs JSON & TOON
 
 - **JSON → TOON**: The [TOON benchmarks](https://toonformat.dev) report roughly 40% fewer tokens than plain JSON on mixed-structure prompts while retaining accuracy due to explicit array lengths and headers.
-- **TOON → CTON**: By stripping indentation and forcing everything inline, CTON cuts another ~20–40% of characters. The sample above is ~350 characters as TOON and ~250 as CTON (~29% fewer), and larger tabular datasets show similar reductions.
-- **Net effect**: In practice you can often reclaim 50–60% of the token budget versus raw JSON, leaving more room for instructions or reasoning steps while keeping a deterministic schema.
+- **TOON → CTON**: By stripping indentation and forcing everything inline, CTON cuts another ~20–40% of characters.
+- **Net effect**: In practice you can often reclaim **50–60% of the token budget** versus raw JSON, leaving more room for instructions or reasoning steps while keeping a deterministic schema.
 
-## Format at a glance
-
-```
-context(task="Our favorite hikes together",location=Boulder,season=spring_2025)
-friends[3]=ana,luis,sam
-hikes[3]{id,name,distanceKm,elevationGain,companion,wasSunny}=1,"Blue Lake Trail",7.5,320,ana,true;2,"Ridge Overlook",9.2,540,luis,false;3,"Wildflower Loop",5.1,180,sam,true
-```
-
-- Objects use parentheses and `key=value` pairs separated by commas.
-- Arrays encode their length: `[N]=...`. When every element is a flat hash with the same keys, they collapse into a compact table: `[N]{key1,key2}=row1;row2`.
-- Scalars (numbers, booleans, `null`) keep their JSON text. Strings only need quotes when they contain whitespace or reserved punctuation.
-- For parsing safety the Ruby encoder inserts a single `\n` between top-level segments. You can override this if you truly need a fully inline document (see options below).
+---
 
 ## Installation
 
@@ -42,28 +123,32 @@ Or install it directly:
 gem install cton
 ```
 
+---
+
 ## Usage
 
 ```ruby
 require "cton"
 
 payload = {
-	"context" => {
-		"task" => "Our favorite hikes together",
-		"location" => "Boulder",
-		"season" => "spring_2025"
-	},
-	"friends" => %w[ana luis sam],
-	"hikes" => [
-		{ "id" => 1, "name" => "Blue Lake Trail", "distanceKm" => 7.5, "elevationGain" => 320, "companion" => "ana", "wasSunny" => true },
-		{ "id" => 2, "name" => "Ridge Overlook", "distanceKm" => 9.2, "elevationGain" => 540, "companion" => "luis", "wasSunny" => false },
-		{ "id" => 3, "name" => "Wildflower Loop", "distanceKm" => 5.1, "elevationGain" => 180, "companion" => "sam", "wasSunny" => true }
-	]
+  "context" => {
+    "task" => "Our favorite hikes together",
+    "location" => "Boulder",
+    "season" => "spring_2025"
+  },
+  "friends" => %w[ana luis sam],
+  "hikes" => [
+    { "id" => 1, "name" => "Blue Lake Trail", "distanceKm" => 7.5, "elevationGain" => 320, "companion" => "ana", "wasSunny" => true },
+    { "id" => 2, "name" => "Ridge Overlook", "distanceKm" => 9.2, "elevationGain" => 540, "companion" => "luis", "wasSunny" => false },
+    { "id" => 3, "name" => "Wildflower Loop", "distanceKm" => 5.1, "elevationGain" => 180, "companion" => "sam", "wasSunny" => true }
+  ]
 }
 
+# Encode to CTON
 cton = Cton.dump(payload)
 # => "context(... )\nfriends[3]=ana,luis,sam\nhikes[3]{...}"
 
+# Decode back to Hash
 round_tripped = Cton.load(cton)
 # => original hash
 
@@ -74,21 +159,21 @@ symbolized = Cton.load(cton, symbolize_names: true)
 inline = Cton.dump(payload, separator: "")
 ```
 
-### Table detection
+### Advanced Features
 
+#### Table detection
 Whenever an array is made of hashes that all expose the same scalar keys, the encoder flattens it into a table to save tokens. Mixed or nested arrays fall back to `[N]=(value1,value2,...)`.
 
-### Separators & ambiguity
-
+#### Separators & ambiguity
 Removing every newline makes certain inputs ambiguous because `sam` and the next key `hikes` can merge into `samhikes`. The default `separator: "\n"` avoids that by inserting a single newline between root segments. You may pass `separator: ""` to `Cton.dump` for maximum compactness, but decoding such strings is only safe if you can guarantee extra quoting or whitespace between segments.
 
-### Literal safety & number normalization
-
+#### Literal safety & number normalization
 Following the TOON specification's guardrails, the encoder now:
-
 - Auto-quotes strings that would otherwise be parsed as booleans, `null`, or numbers (e.g., `"true"`, `"007"`, `"1e6"`, `"-5"`) so they round-trip as strings without extra work.
 - Canonicalizes float/BigDecimal output: no exponent notation, no trailing zeros, and `-0` collapses to `0`.
 - Converts `NaN` and `±Infinity` inputs to `null`, matching TOON's normalization guidance so downstream decoders don't explode on non-finite numbers.
+
+---
 
 ## Type Safety
 
@@ -110,4 +195,4 @@ Bug reports and pull requests are welcome at https://github.com/davidesantangelo
 
 ## License
 
-MIT © Davide Santangelo
+MIT © [Davide Santangelo](https://github.com/davidesantangelo)
