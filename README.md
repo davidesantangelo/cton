@@ -242,16 +242,18 @@ CTON minimizes syntax characters (braces, quotes) while preserving structure and
   - `;` separates distinct objects (rows).
   - `,` separates values within an object.
 - **Example:**
-  - JSON: 
-    ```json
-    {
-      "files": [
-        { "name": "README.md", "size": 1024 },
-        { "name": "lib.rb", "size": 2048 }
-      ]
-    }
-    ```
-  - CTON: `files[2]{name,size}=README.md,1024;lib.rb,2048`
+
+JSON:
+```json
+{
+  "files": [
+    { "name": "README.md", "size": 1024 },
+    { "name": "lib.rb", "size": 2048 }
+  ]
+}
+```
+
+CTON: `files[2]{name,size}=README.md,1024;lib.rb,2048`
 
 **4. Type Safety & Literals**
 - **Booleans/Null:** `true`, `false`, and `null` are preserved as literals (unquoted).
