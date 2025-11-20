@@ -15,6 +15,7 @@
 - [Token Savings](#token-savings-vs-json--toon)
 - [Installation](#installation)
 - [Usage](#usage)
+- [Performance & Benchmarks](#performance--benchmarks)
 - [Teaching CTON to LLMs](#teaching-cton-to-llms)
 - [Development](#development)
 - [Contributing](#contributing)
@@ -166,6 +167,10 @@ pretty = Cton.dump(payload, pretty: true)
 File.open("data.cton", "w") do |f|
   Cton.dump(payload, f)
 end
+
+# Toggle float normalization strategies
+fast  = Cton.dump(payload) # default :fast mode
+strict = Cton.dump(payload, decimal_mode: :precise)
 ```
 
 ### CLI Tool
@@ -197,13 +202,43 @@ CTON natively supports serialization for:
 Whenever an array is made of hashes that all expose the same scalar keys, the encoder flattens it into a table to save tokens. Mixed or nested arrays fall back to `[N]=(value1,value2,...)`.
 
 #### Separators & ambiguity
-Removing every newline makes certain inputs ambiguous because `sam` and the next key `hikes` can merge into `samhikes`. The default `separator: "\n"` avoids that by inserting a single newline between root segments. You may pass `separator: ""` to `Cton.dump` for maximum compactness, but decoding such strings is only safe if you can guarantee extra quoting or whitespace between segments.
+Removing every newline makes certain inputs ambiguous because `sam` and the next key `hikes` can merge into `samhikes`. The default `separator: "\n"` avoids that by inserting a single newline between root segments. You may pass `separator: ""` to `Cton.dump` for maximum compactness, but decoding such strings is only safe if you can guarantee extra quoting or whitespace between segments. When you intentionally omit separators, keep next-level keys alphabetic (e.g., `payload`, `k42`) so the decoder's boundary heuristic can split `...1payload...` without misclassifying numeric prefixes.
 
 #### Literal safety & number normalization
 Following the TOON specification's guardrails, the encoder now:
 - Auto-quotes strings that would otherwise be parsed as booleans, `null`, or numbers (e.g., `"true"`, `"007"`, `"1e6"`, `"-5"`) so they round-trip as strings without extra work.
 - Canonicalizes float/BigDecimal output: no exponent notation, no trailing zeros, and `-0` collapses to `0`.
 - Converts `NaN` and `±Infinity` inputs to `null`, matching TOON's normalization guidance so downstream decoders don't explode on non-finite numbers.
+
+#### Decimal normalization modes
+- `decimal_mode: :fast` (default) prefers Ruby's native float representation and only falls back to `BigDecimal` when scientific notation is detected, minimizing allocations on tight loops.
+- `decimal_mode: :precise` forces the legacy `BigDecimal` path for every float, which is slower but useful for audit-grade dumps where you want deterministic decimal expansion.
+- Both modes share the same trailing-zero stripping and `-0 → 0` normalization, so switching modes never affects integer formatting.
+
+---
+
+## Performance & Benchmarks
+
+CTON focuses on throughput: encoder table schemas are memoized, scalar list encoding keeps a reusable buffer, floats avoid `BigDecimal` when they can, and the decoder slices straight from the raw string to sidestep `StringScanner` allocations. You can reproduce the numbers below with the bundled script:
+
+```bash
+bundle exec ruby bench/encode_decode_bench.rb
+# customize input size / iterations
+ITERATIONS=2000 STREAM_SIZE=400 bundle exec ruby bench/encode_decode_bench.rb
+```
+
+Latest results on Ruby 3.1.4/macOS (M-series), 1,000 iterations, `STREAM_SIZE=200`:
+
+| Benchmark | Time (s) |
+| --- | --- |
+| `cton dump` (:fast) | 0.626 |
+| `cton dump` (:precise) | 0.658 |
+| `json generate` | 0.027 |
+| `cton load` | 2.067 |
+| `json parse` | 0.045 |
+| `cton inline load` (separator=`""`, double payload) | 4.140 |
+
+`cton inline load` deliberately concatenates documents without separators to stress the new boundary detector; it now finishes without the runaway allocations seen in earlier releases.
 
 ---
 
@@ -287,6 +322,7 @@ CTON ships with RBS signatures (`sig/cton.rbs`) to support type checking and IDE
 bin/setup        # install dependencies
 bundle exec rake # run tests and rubocop
 bin/console      # interactive playground
+bundle exec ruby bench/encode_decode_bench.rb # performance smoke test
 ```
 
 To release a new version, bump `Cton::VERSION` and run `bundle exec rake release`.

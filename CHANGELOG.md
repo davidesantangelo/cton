@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2025-11-20
+
+### Added
+
+- **Performance tunables**: `Cton.dump` now accepts `decimal_mode: :fast | :precise`, allowing callers to trade float-format determinism for lower allocation pressure. Specs cover both modes.
+- **Benchmark harness**: New `bench/encode_decode_bench.rb` script (wired into the README/Development docs) exercises encode/decode hot paths and prints comparative JSON vs CTON timings. On Ruby 3.1.4/macOS the fast encoder completes 1,000 iterations in ~0.63s and the new inline decoder stress test wraps 400 concatenated documents in ~4.14s.
+- **Regression tests**: Added specs for streaming documents without separators plus validation around the new decimal mode toggle.
+
+### Changed
+
+- **Encoder**: Memoizes table schemas per array instance, adds a fast-path for homogeneous scalar lists, and reduces float/BigDecimal copying by favoring Ruby's native float formatting before falling back to `BigDecimal`. Unsupported `decimal_mode` values now raise immediately.
+- **Decoder**: Replaces high-allocation `StringScanner` tokenization with raw string slicing, improves key-boundary detection for inline payloads, and keeps symbolization logic untouched. Boundary heuristics now prefer alphabetic key starts to avoid splitting numeric payloads.
+- **Documentation**: README now calls out the tuning flags, inline caveats, and benchmark instructions; Development workflow highlights how to rerun the perf suite.
+
+### Fixed
+
+- **Inline parsing**: Eliminated the runaway allocations and incorrect key splits when processing long documents with `separator: ""`.
+- **Float normalization**: Restored canonical `9.2`-style output in fast mode while keeping the new perf optimizations.
+
 ## [0.2.0] - 2025-11-19
 
 ### Added

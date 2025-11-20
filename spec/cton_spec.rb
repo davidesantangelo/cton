@@ -133,6 +133,17 @@ RSpec.describe Cton do
       end
     end
 
+    context "performance tunables" do
+      it "allows opting into precise decimal mode" do
+        payload = { "value" => 0.125 }
+        expect(Cton.dump(payload, decimal_mode: :precise)).to eq("value=0.125")
+      end
+
+      it "rejects unknown decimal modes" do
+        expect { Cton.dump({ "a" => 1 }, decimal_mode: :unknown) }.to raise_error(ArgumentError)
+      end
+    end
+
     context "table detection" do
       it "compacts uniform scalar hashes" do
         payload = {
@@ -192,6 +203,15 @@ RSpec.describe Cton do
           "beta" => [true, false],
           "gamma" => {}
         )
+      end
+
+      it "parses long inline documents without separators" do
+        payload = (1..200).each_with_object({}) do |index, memo|
+          memo["k#{index}"] = index
+        end
+
+        inline = Cton.dump(payload, separator: "")
+        expect(Cton.load(inline)).to eq(payload)
       end
     end
 

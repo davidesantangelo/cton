@@ -11,10 +11,14 @@ module Cton
     RESERVED_LITERALS = %w[true false null].freeze
     FLOAT_DECIMAL_PRECISION = Float::DIG
 
-    def initialize(separator: "\n", pretty: false)
+    def initialize(separator: "\n", pretty: false, decimal_mode: :fast)
       @separator = separator || ""
       @pretty = pretty
+      @decimal_mode = decimal_mode
+      raise ArgumentError, "decimal_mode must be :fast or :precise" unless %i[fast precise].include?(@decimal_mode)
+
       @indent_level = 0
+      @table_schema_cache = {}
     end
 
     def encode(payload, io: nil)
@@ -25,7 +29,7 @@ module Cton
 
     private
 
-    attr_reader :separator, :io, :pretty, :indent_level
+    attr_reader :separator, :io, :pretty, :indent_level, :decimal_mode
 
     def encode_root(value)
       case value
@@ -96,8 +100,8 @@ module Cton
 
       io << "[" << length.to_s << "]"
 
-      if table_candidate?(list)
-        encode_table(list)
+      if (header = table_schema_for(list))
+        encode_table(list, header)
       else
         io << "="
         if list.all? { |value| scalar?(value) }
@@ -108,8 +112,7 @@ module Cton
       end
     end
 
-    def encode_table(rows)
-      header = rows.first.keys
+    def encode_table(rows, header)
       io << "{"
       io << header.map { |key| format_key(key) }.join(",")
       io << "}="
@@ -150,10 +153,14 @@ module Cton
         outdent
       else
         first = true
-        list.each do |value|
-          io << "," unless first
-          encode_scalar(value)
-          first = false
+        if fast_scalar_stream?(list)
+          io << fast_scalar_stream(list)
+        else
+          list.each do |value|
+            io << "," unless first
+            encode_scalar(value)
+            first = false
+          end
         end
       end
     end
@@ -174,30 +181,34 @@ module Cton
     end
 
     def encode_scalar(value)
+      io << scalar_to_string(value)
+    end
+
+    def scalar_to_string(value)
       case value
       when String
-        encode_string(value)
+        format_string(value)
       when TrueClass, FalseClass
-        io << (value ? "true" : "false")
+        value ? "true" : "false"
       when NilClass
-        io << "null"
+        "null"
       when Numeric
-        io << format_number(value)
+        format_number(value)
       when Time, Date
-        encode_string(value.iso8601)
+        format_string(value.iso8601)
       else
         raise EncodeError, "Unsupported value: #{value.class}"
       end
     end
 
-    def encode_string(value)
-      io << if value.empty?
-              '""'
-            elsif string_needs_quotes?(value)
-              quote_string(value)
-            else
-              value
-            end
+    def format_string(value)
+      if value.empty?
+        '""'
+      elsif string_needs_quotes?(value)
+        quote_string(value)
+      else
+        value
+      end
     end
 
     def format_number(value)
@@ -234,6 +245,17 @@ module Cton
     end
 
     def float_decimal_string(value)
+      return precise_float_decimal_string(value) if decimal_mode == :precise
+
+      decimal = value.to_s
+      if decimal.include?("e") || decimal.include?("E")
+        precise_float_decimal_string(value)
+      else
+        decimal
+      end
+    end
+
+    def precise_float_decimal_string(value)
       if defined?(BigDecimal)
         BigDecimal(value.to_s).to_s("F")
       else
@@ -278,16 +300,64 @@ module Cton
       value.is_a?(String) || value.is_a?(Numeric) || value == true || value == false || value.nil? || value.is_a?(Time) || value.is_a?(Date)
     end
 
-    def table_candidate?(rows)
-      return false if rows.empty?
+    def table_schema_for(rows)
+      cache_lookup = @table_schema_cache.fetch(rows.object_id, :__missing__)
+      return cache_lookup unless cache_lookup == :__missing__
+
+      schema = compute_table_schema(rows)
+      @table_schema_cache[rows.object_id] = schema
+    end
+
+    def compute_table_schema(rows)
+      return nil if rows.empty?
 
       first = rows.first
-      return false unless first.is_a?(Hash) && !first.empty?
+      return nil unless first.is_a?(Hash) && !first.empty?
 
-      keys = first.keys
-      rows.all? do |row|
-        row.is_a?(Hash) && row.keys == keys && row.values.all? { |val| scalar?(val) }
+      header = first.keys.freeze
+
+      rows.each do |row|
+        return nil unless row.is_a?(Hash)
+        return nil unless row.keys == header
+        return nil unless row.values.all? { |val| scalar?(val) }
       end
+
+      header
+    end
+
+    def fast_scalar_stream?(list)
+      !pretty && list.length > 4 && homogeneous_scalar_tokens?(list)
+    end
+
+    def homogeneous_scalar_tokens?(list)
+      first_class = nil
+      list.all? do |value|
+        return false unless scalar?(value)
+
+        token_class = value.class
+        first_class ||= token_class
+        token_class == first_class && token_does_not_require_quotes?(value)
+      end
+    end
+
+    def token_does_not_require_quotes?(value)
+      case value
+      when String
+        !value.empty? && !string_needs_quotes?(value)
+      when Integer, TrueClass, FalseClass, NilClass
+        true
+      else
+        false
+      end
+    end
+
+    def fast_scalar_stream(list)
+      buffer = String.new
+      list.each_with_index do |value, index|
+        buffer << "," unless index.zero?
+        buffer << scalar_to_string(value)
+      end
+      buffer
     end
 
     def indent

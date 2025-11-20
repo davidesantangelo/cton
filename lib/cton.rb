@@ -28,7 +28,8 @@ module Cton
 
     separator = options.fetch(:separator, "\n")
     pretty = options.fetch(:pretty, false)
-    Encoder.new(separator: separator, pretty: pretty).encode(payload, io: io)
+    decimal_mode = options.fetch(:decimal_mode, :fast)
+    Encoder.new(separator: separator, pretty: pretty, decimal_mode: decimal_mode).encode(payload, io: io)
   end
   alias generate dump
 

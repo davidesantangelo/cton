@@ -5,13 +5,15 @@ require "strscan"
 module Cton
   class Decoder
     TERMINATORS = [",", ";", ")", "]", "}"].freeze
+    KEY_VALUE_BOUNDARY_TOKENS = ["(", "[", "="].freeze
 
     def initialize(symbolize_names: false)
       @symbolize_names = symbolize_names
     end
 
     def decode(cton)
-      @scanner = StringScanner.new(cton.to_s)
+      @raw_string = cton.to_s
+      @scanner = StringScanner.new(@raw_string)
       skip_ws
 
       value = if key_ahead?
@@ -28,7 +30,7 @@ module Cton
 
     private
 
-    attr_reader :symbolize_names, :scanner
+    attr_reader :symbolize_names, :scanner, :raw_string
 
     def raise_error(message)
       line, col = calculate_location(@scanner.pos)
@@ -36,7 +38,7 @@ module Cton
     end
 
     def calculate_location(pos)
-      string = @scanner.string
+      string = raw_string
       consumed = string[0...pos]
       line = consumed.count("\n") + 1
       last_newline = consumed.rindex("\n")
@@ -168,54 +170,72 @@ module Cton
     end
 
     def scan_until_terminator
-      @scanner.scan(/[^,;\]\}\)\(\[\{\s]+/)
+      start_pos = @scanner.pos
+      end_pos = find_terminator_position(start_pos)
+      consume_slice(start_pos, end_pos)
     end
 
     def scan_until_boundary_or_terminator
       start_pos = @scanner.pos
+      boundary_pos = find_key_boundary(start_pos)
+      end_pos = boundary_pos || find_terminator_position(start_pos)
+      consume_slice(start_pos, end_pos)
+    end
 
-      chunk = @scanner.scan(/[0-9A-Za-z_.:-]+/)
-      return nil unless chunk
+    def consume_slice(start_pos, end_pos)
+      return nil if end_pos <= start_pos
 
-      boundary_idx = find_key_boundary(start_pos)
+      token = raw_string.byteslice(start_pos, end_pos - start_pos)
+      @scanner.pos = end_pos
+      token
+    end
 
-      if boundary_idx
-        length = boundary_idx - start_pos
-        @scanner.pos = start_pos
-        token = @scanner.peek(length)
-        @scanner.pos += length
-        token
-      else
-        @scanner.pos = start_pos + chunk.length
-        chunk
+    def find_terminator_position(start_pos)
+      str = raw_string
+      len = str.length
+      idx = start_pos
+
+      while idx < len
+        char = str[idx]
+        break if terminator?(char)
+
+        idx += 1
       end
+
+      idx
     end
 
     def find_key_boundary(from_index)
-      str = @scanner.string
+      str = raw_string
       len = str.length
       idx = from_index
 
       while idx < len
         char = str[idx]
 
-        return nil if TERMINATORS.include?(char) || whitespace?(char) || "([{".include?(char)
+        return nil if terminator?(char)
 
         if safe_key_char?(char)
           key_end = idx
           key_end += 1 while key_end < len && safe_key_char?(str[key_end])
 
-          next_char_idx = key_end
-
-          if next_char_idx < len
-            next_char = str[next_char_idx]
-            return idx if ["(", "[", "="].include?(next_char) && (idx > from_index)
+          if key_end < len && KEY_VALUE_BOUNDARY_TOKENS.include?(str[key_end]) && idx > from_index && boundary_start_allowed?(str[idx])
+            return idx
           end
         end
 
         idx += 1
       end
+
       nil
+    end
+
+    def terminator?(char)
+      TERMINATORS.include?(char) || whitespace?(char) || ["(", "[", "{"].include?(char)
+    end
+
+    def boundary_start_allowed?(char)
+      !char.nil? && char.match?(/[A-Za-z_.:-]/)
     end
 
     def convert_scalar(token)
