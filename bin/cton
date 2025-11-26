@@ -9,11 +9,18 @@ options = {
   mode: :auto,
   pretty: false,
   input: nil,
-  output: nil
+  output: nil,
+  stats: false,
+  validate: false,
+  minify: false,
+  separator: "\n"
 }
 
 parser = OptionParser.new do |opts|
   opts.banner = "Usage: cton [options] [file]"
+
+  opts.separator ""
+  opts.separator "Conversion options:"
 
   opts.on("-j", "--to-json", "Convert CTON to JSON") do
     options[:mode] = :to_json
@@ -27,9 +34,28 @@ parser = OptionParser.new do |opts|
     options[:pretty] = true
   end
 
+  opts.on("-m", "--minify", "Minify CTON output (remove separators)") do
+    options[:minify] = true
+    options[:separator] = ""
+  end
+
   opts.on("-o", "--output FILE", "Output file") do |file|
     options[:output] = file
   end
+
+  opts.separator ""
+  opts.separator "Analysis options:"
+
+  opts.on("-s", "--stats", "Show token savings statistics") do
+    options[:stats] = true
+  end
+
+  opts.on("--validate", "Validate CTON syntax without conversion") do
+    options[:validate] = true
+  end
+
+  opts.separator ""
+  opts.separator "Other options:"
 
   opts.on("-v", "--version", "Show version") do
     puts Cton::VERSION
@@ -51,6 +77,23 @@ input_content = if input_file
                   $stdin.read
                 end
 
+# Handle validation mode
+if options[:validate]
+  result = Cton.validate(input_content)
+  if result.valid?
+    puts "\e[32m✓ Valid CTON\e[0m"
+    exit 0
+  else
+    puts "\e[31m✗ Invalid CTON\e[0m"
+    result.errors.each do |error|
+      puts "  Line #{error.line}, Column #{error.column}: #{error.message}"
+      puts "    Near: #{error.source_excerpt}" if error.source_excerpt
+    end
+    exit 1
+  end
+end
+
+# Detect mode if auto
 if options[:mode] == :auto
   # Simple heuristic: if it starts with { or [, it's likely JSON.
   stripped = input_content.strip
@@ -61,12 +104,43 @@ if options[:mode] == :auto
                    end
 end
 
+# Handle stats mode
+if options[:stats]
+  begin
+    data = if options[:mode] == :to_cton
+             JSON.parse(input_content)
+           else
+             Cton.load(input_content)
+           end
+
+    stats = Cton.stats(data)
+    puts stats
+
+    # Also show comparison table
+    puts ""
+    puts "Format Comparison:"
+    puts "-" * 50
+    comparison = Cton::Stats.compare(data)
+    printf "%-20s %10s %10s\n", "Format", "Chars", "Bytes"
+    puts "-" * 50
+    printf "%-20s %10d %10d\n", "JSON", comparison[:json][:chars], comparison[:json][:bytes]
+    printf "%-20s %10d %10d\n", "JSON (pretty)", comparison[:json_pretty][:chars], comparison[:json_pretty][:bytes]
+    printf "%-20s %10d %10d\n", "CTON", comparison[:cton][:cton_chars], comparison[:cton][:cton_bytes]
+    printf "%-20s %10d %10d\n", "CTON (inline)", comparison[:cton_inline][:chars], comparison[:cton_inline][:bytes]
+    printf "%-20s %10d %10d\n", "CTON (pretty)", comparison[:cton_pretty][:chars], comparison[:cton_pretty][:bytes]
+    exit 0
+  rescue StandardError => e
+    warn "Error: #{e.message}"
+    exit 1
+  end
+end
+
 result = nil
 
 begin
   if options[:mode] == :to_cton
     data = JSON.parse(input_content)
-    result = Cton.dump(data, pretty: options[:pretty])
+    result = Cton.dump(data, pretty: options[:pretty], separator: options[:separator])
   else
     data = Cton.load(input_content)
     result = if options[:pretty]
@@ -78,10 +152,20 @@ begin
 
   if options[:output]
     File.write(options[:output], result)
+    puts "Output written to #{options[:output]}"
   else
     puts result
   end
+rescue Cton::ParseError => e
+  warn "\e[31mParse Error:\e[0m #{e.message}"
+  warn "  Line #{e.line}, Column #{e.column}" if e.line && e.column
+  warn "  Near: #{e.source_excerpt}" if e.source_excerpt
+  e.suggestions&.each { |s| warn "  Hint: #{s}" }
+  exit 1
+rescue JSON::ParserError => e
+  warn "\e[31mJSON Error:\e[0m #{e.message}"
+  exit 1
 rescue StandardError => e
-  warn "Error: #{e.message}"
+  warn "\e[31mError:\e[0m #{e.message}"
   exit 1
 end

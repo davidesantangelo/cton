@@ -35,6 +35,10 @@ CTON is designed to be the most efficient way to represent structured data for L
     *   Nested objects use parentheses `(key=value)`.
     *   Arrays use brackets with length `[N]=item1,item2`.
 3.  **Table Compression**: If an array contains objects with the same keys, CTON automatically converts it into a table format `[N]{header1,header2}=val1,val2;val3,val4`. This is a massive token saver for datasets.
+4.  **Comments**: Single-line comments with `#` for annotating data.
+5.  **Validation API**: Check CTON syntax without full parsing for quick validation.
+6.  **Token Statistics**: Built-in measurement of token efficiency vs JSON.
+7.  **Custom Type Registry**: Register serializers for domain objects.
 
 ---
 
@@ -188,9 +192,124 @@ echo 'hello=world' | cton --to-json
 
 # Pretty print
 cton --pretty input.json
+
+# Minify (fully inline, no separators)
+cton --minify input.json
+
+# Validate CTON syntax
+cton --validate input.cton
+# => ✓ Valid CTON
+
+# Show token savings statistics
+echo '{"name": "test", "items": [1,2,3]}' | cton --stats
+# => JSON:  33 chars / 33 bytes (~9 tokens)
+# => CTON:  26 chars / 26 bytes (~7 tokens)
+# => Saved: 21.2% (7 chars, ~2 tokens)
 ```
 
 ### Advanced Features
+
+#### Comments
+
+CTON supports single-line comments using the `#` character:
+
+```ruby
+cton_with_comments = <<~CTON
+  # User configuration
+  user(
+    name=Alice,
+    # Age is optional
+    age=30
+  )
+CTON
+
+Cton.load(cton_with_comments)
+# => {"user" => {"name" => "Alice", "age" => 30}}
+
+# Add comments when encoding
+Cton.dump(data, comments: { "user" => "User configuration" })
+```
+
+#### Validation API
+
+Validate CTON syntax without full parsing:
+
+```ruby
+# Quick validity check
+Cton.valid?("key=value")  # => true
+Cton.valid?("key=(broken")  # => false
+
+# Detailed validation with error info
+result = Cton.validate("key=(broken")
+result.valid?  # => false
+result.errors.first.message  # => "Expected '=' in object"
+result.errors.first.line     # => 1
+result.errors.first.column   # => 5
+```
+
+#### Token Statistics
+
+Measure CTON's token efficiency compared to JSON:
+
+```ruby
+stats = Cton.stats(data)
+puts stats.savings_percent    # => 45.5
+puts stats.estimated_token_savings  # => 12
+
+# Full comparison
+puts stats.to_s
+# => JSON:  100 chars / 100 bytes (~25 tokens)
+# => CTON:   55 chars /  55 bytes (~14 tokens)
+# => Saved: 45.0% (45 chars, ~11 tokens)
+
+# Compare all format variants
+Cton::Stats.compare(data)
+# => { cton: {...}, cton_inline: {...}, json: {...}, ... }
+```
+
+#### Custom Type Registry
+
+Register custom serializers for your domain objects:
+
+```ruby
+class Money
+  attr_reader :cents, :currency
+  def initialize(cents, currency)
+    @cents = cents
+    @currency = currency
+  end
+end
+
+# Register as object
+Cton.register_type(Money) do |money|
+  { amount: money.cents, currency: money.currency }
+end
+
+Cton.dump("price" => Money.new(1999, "USD"))
+# => "price(amount=1999,currency=USD)"
+
+# Register as scalar
+Cton.register_type(UUID, as: :scalar) { |uuid| uuid.to_s }
+
+# Unregister when done
+Cton.unregister_type(Money)
+```
+
+#### Enhanced Error Reporting
+
+Parse errors include detailed context for debugging:
+
+```ruby
+begin
+  Cton.load("user(name=Alice,invalid")
+rescue Cton::ParseError => e
+  puts e.message       # => "Unterminated object at line 1, column 20"
+  puts e.line          # => 1
+  puts e.column        # => 20
+  puts e.source_excerpt  # => "...name=Alice,invalid"
+  puts e.suggestions   # => ["Did you forget a closing ')'?"]
+end
+```
 
 #### Extended Types
 CTON natively supports serialization for:

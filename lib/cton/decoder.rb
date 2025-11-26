@@ -6,6 +6,9 @@ module Cton
   class Decoder
     TERMINATORS = [",", ";", ")", "]", "}"].freeze
     KEY_VALUE_BOUNDARY_TOKENS = ["(", "[", "="].freeze
+    SAFE_KEY_PATTERN = /[0-9A-Za-z_.:-]+/
+    INTEGER_PATTERN = /\A-?(?:0|[1-9]\d*)\z/
+    FLOAT_PATTERN = /\A-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\z/
 
     def initialize(symbolize_names: false)
       @symbolize_names = symbolize_names
@@ -14,7 +17,7 @@ module Cton
     def decode(cton)
       @raw_string = cton.to_s
       @scanner = StringScanner.new(@raw_string)
-      skip_ws
+      skip_ws_and_comments
 
       value = if key_ahead?
                 parse_document
@@ -22,7 +25,7 @@ module Cton
                 parse_value(allow_key_boundary: true)
               end
 
-      skip_ws
+      skip_ws_and_comments
       raise_error("Unexpected trailing data") unless @scanner.eos?
 
       value
@@ -32,9 +35,16 @@ module Cton
 
     attr_reader :symbolize_names, :scanner, :raw_string
 
-    def raise_error(message)
+    def raise_error(message, suggestions: nil)
       line, col = calculate_location(@scanner.pos)
-      raise ParseError, "#{message} at line #{line}, column #{col}"
+      excerpt = extract_source_excerpt(@scanner.pos)
+      raise ParseError.new(
+        message,
+        line: line,
+        column: col,
+        source_excerpt: excerpt,
+        suggestions: suggestions
+      )
     end
 
     def calculate_location(pos)
@@ -46,19 +56,31 @@ module Cton
       [line, col]
     end
 
+    def extract_source_excerpt(pos, length: 30)
+      start = [pos - 10, 0].max
+      finish = [pos + length, raw_string.length].min
+      excerpt = raw_string[start...finish]
+      excerpt = "...#{excerpt}" if start.positive?
+      excerpt = "#{excerpt}..." if finish < raw_string.length
+      excerpt.gsub(/\s+/, " ")
+    end
+
     def parse_document
       result = {}
       until @scanner.eos?
+        skip_ws_and_comments
+        break if @scanner.eos?
+
         key = parse_key_name
         value = parse_value_for_key
         result[key] = value
-        skip_ws
+        skip_ws_and_comments
       end
       result
     end
 
     def parse_value_for_key
-      skip_ws
+      skip_ws_and_comments
       if @scanner.scan("(")
         parse_object
       elsif @scanner.scan("[")
@@ -71,7 +93,7 @@ module Cton
     end
 
     def parse_object
-      skip_ws
+      skip_ws_and_comments
       return {} if @scanner.scan(")")
 
       pairs = {}
@@ -80,11 +102,11 @@ module Cton
         expect!("=")
         value = parse_value
         pairs[key] = value
-        skip_ws
+        skip_ws_and_comments
         break if @scanner.scan(")")
 
         expect!(",")
-        skip_ws
+        skip_ws_and_comments
       end
       pairs
     end
@@ -92,7 +114,7 @@ module Cton
     def parse_array
       length = parse_integer_literal
       expect!("]")
-      skip_ws
+      skip_ws_and_comments
 
       header = parse_header if @scanner.peek(1) == "{"
 
@@ -140,7 +162,7 @@ module Cton
     end
 
     def parse_value(allow_key_boundary: false)
-      skip_ws
+      skip_ws_and_comments
       if @scanner.scan("(")
         parse_object
       elsif @scanner.scan("[")
@@ -153,7 +175,7 @@ module Cton
     end
 
     def parse_scalar(allow_key_boundary: false)
-      skip_ws
+      skip_ws_and_comments
       return parse_string if @scanner.peek(1) == '"'
 
       @scanner.pos
@@ -283,8 +305,8 @@ module Cton
     end
 
     def parse_key_name
-      skip_ws
-      token = @scanner.scan(/[0-9A-Za-z_.:-]+/)
+      skip_ws_and_comments
+      token = @scanner.scan(SAFE_KEY_PATTERN)
       raise_error("Invalid key") if token.nil?
       symbolize_names ? token.to_sym : token
     end
@@ -302,7 +324,7 @@ module Cton
     end
 
     def expect!(char)
-      skip_ws
+      skip_ws_and_comments
       return if @scanner.scan(Regexp.new(Regexp.escape(char)))
 
       raise_error("Expected #{char.inspect}, got #{@scanner.peek(1).inspect}")
@@ -312,16 +334,23 @@ module Cton
       @scanner.skip(/\s+/)
     end
 
+    def skip_ws_and_comments
+      loop do
+        @scanner.skip(/\s+/)
+        break unless @scanner.scan(/#[^\n]*\n?/)
+      end
+    end
+
     def whitespace?(char)
       [" ", "\t", "\n", "\r"].include?(char)
     end
 
     def key_ahead?
       pos = @scanner.pos
-      skip_ws
+      skip_ws_and_comments
 
-      if @scanner.scan(/[0-9A-Za-z_.:-]+/)
-        skip_ws
+      if @scanner.scan(SAFE_KEY_PATTERN)
+        skip_ws_and_comments
         next_char = @scanner.peek(1)
         result = ["(", "[", "="].include?(next_char)
         @scanner.pos = pos
@@ -337,11 +366,11 @@ module Cton
     end
 
     def integer?(token)
-      token.match?(/\A-?(?:0|[1-9]\d*)\z/)
+      token.match?(INTEGER_PATTERN)
     end
 
     def float?(token)
-      token.match?(/\A-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\z/)
+      token.match?(FLOAT_PATTERN)
     end
   end
 end

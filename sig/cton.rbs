@@ -2,12 +2,97 @@ module Cton
   VERSION: String
   class Error < ::StandardError; end
   class EncodeError < Error; end
-  class ParseError < Error; end
 
+  class ParseError < Error
+    attr_reader line: Integer?
+    attr_reader column: Integer?
+    attr_reader source_excerpt: String?
+    attr_reader suggestions: Array[String]
+
+    def initialize: (String message, ?line: Integer?, ?column: Integer?, ?source_excerpt: String?, ?suggestions: Array[String]?) -> void
+    def to_h: -> Hash[Symbol, untyped]
+  end
+
+  # Module-level methods
   def self.dump: (untyped payload, ?Hash[Symbol, untyped] options) -> String
   def self.generate: (untyped payload, ?Hash[Symbol, untyped] options) -> String
   def self.load: (String cton_string, ?symbolize_names: bool) -> untyped
   def self.parse: (String cton_string, ?symbolize_names: bool) -> untyped
+  def self.validate: (String cton_string) -> ValidationResult
+  def self.valid?: (String cton_string) -> bool
+  def self.stats: (untyped data) -> Stats
+  def self.stats_hash: (untyped data) -> Hash[Symbol, untyped]
+  def self.register_type: (Class klass, ?as: Symbol) { (untyped) -> untyped } -> void
+  def self.unregister_type: (Class klass) -> void
+  def self.clear_type_registry!: -> void
+  def self.type_registry: -> TypeRegistry
+
+  class ValidationResult
+    attr_reader errors: Array[ValidationError]
+
+    def initialize: (?Array[ValidationError] errors) -> void
+    def valid?: -> bool
+    def to_s: -> String
+  end
+
+  class ValidationError
+    attr_reader message: String
+    attr_reader line: Integer
+    attr_reader column: Integer
+    attr_reader source_excerpt: String?
+
+    def initialize: (message: String, line: Integer, column: Integer, ?source_excerpt: String?) -> void
+    def to_s: -> String
+    def to_h: -> Hash[Symbol, untyped]
+  end
+
+  class Validator
+    def initialize: -> void
+    def validate: (String cton_string) -> ValidationResult
+  end
+
+  class Stats
+    CHARS_PER_TOKEN: Integer
+
+    attr_reader data: untyped
+    attr_reader json_string: String
+    attr_reader cton_string: String
+
+    def initialize: (untyped data, ?cton_string: String?, ?json_string: String?) -> void
+    def json_chars: -> Integer
+    def cton_chars: -> Integer
+    def json_bytes: -> Integer
+    def cton_bytes: -> Integer
+    def savings_chars: -> Integer
+    def savings_bytes: -> Integer
+    def savings_percent: -> Float
+    def estimated_json_tokens: -> Integer
+    def estimated_cton_tokens: -> Integer
+    def estimated_token_savings: -> Integer
+    def to_h: -> Hash[Symbol, untyped]
+    def to_s: -> String
+
+    def self.compare: (untyped data, ?options: Hash[Symbol, untyped]) -> Hash[Symbol, untyped]
+  end
+
+  class TypeRegistry
+    class Handler
+      attr_accessor klass: Class
+      attr_accessor mode: Symbol
+      attr_accessor block: Proc
+
+      def initialize: (?klass: Class?, ?mode: Symbol?, ?block: Proc?) -> void
+    end
+
+    def initialize: -> void
+    def register: (Class klass, ?as: Symbol) { (untyped) -> untyped } -> void
+    def unregister: (Class klass) -> void
+    def registered?: (Class klass) -> bool
+    def transform: (untyped value) -> untyped
+    def handler_for: (Class klass) -> Handler?
+    def registered_types: -> Array[Class]
+    def clear!: -> void
+  end
 
   class Encoder
     SAFE_TOKEN: Regexp
@@ -15,38 +100,57 @@ module Cton
     RESERVED_LITERALS: Array[String]
     FLOAT_DECIMAL_PRECISION: Integer
 
-    def initialize: (?separator: String) -> void
-    def encode: (untyped payload) -> String
+    def initialize: (?separator: String?, ?pretty: bool, ?decimal_mode: Symbol, ?comments: Hash[String, String]?) -> void
+    def encode: (untyped payload, ?io: IO?) -> String?
 
     private
     attr_reader separator: String
     attr_reader io: StringIO
+    attr_reader pretty: bool
+    attr_reader indent_level: Integer
+    attr_reader decimal_mode: Symbol
+    attr_reader comments: Hash[String, String]
 
     def encode_root: (untyped value) -> void
     def encode_top_level_pair: (String | Symbol key, untyped value) -> void
     def encode_value: (untyped value, context: Symbol) -> void
     def encode_object: (Hash[untyped, untyped] hash) -> void
     def encode_array: (Array[untyped] list) -> void
-    def encode_table: (Array[Hash[untyped, untyped]] rows) -> void
+    def encode_table: (Array[Hash[untyped, untyped]] rows, Array[String | Symbol] header) -> void
     def encode_scalar_list: (Array[untyped] list) -> void
     def encode_mixed_list: (Array[untyped] list) -> void
     def encode_scalar: (untyped value) -> void
-    def encode_string: (String value) -> void
+    def scalar_to_string: (untyped value) -> String
+    def format_string: (String value) -> String
     def format_number: (Numeric value) -> String
     def normalize_decimal_string: (String string) -> String
     def zero_string?: (String string) -> bool
     def float_decimal_string: (Numeric value) -> String
+    def precise_float_decimal_string: (Numeric value) -> String
     def format_key: (String | Symbol key) -> String
     def string_needs_quotes?: (String value) -> bool
     def numeric_like?: (String value) -> bool
     def quote_string: (String value) -> String
     def escape_string: (String value) -> String
     def scalar?: (untyped value) -> bool
-    def table_candidate?: (Array[untyped] rows) -> bool
+    def table_schema_for: (Array[untyped] rows) -> Array[String | Symbol]?
+    def compute_table_schema: (Array[untyped] rows) -> Array[String | Symbol]?
+    def fast_scalar_stream?: (Array[untyped] list) -> bool
+    def homogeneous_scalar_tokens?: (Array[untyped] list) -> bool
+    def token_does_not_require_quotes?: (untyped value) -> bool
+    def fast_scalar_stream: (Array[untyped] list) -> String
+    def indent: -> void
+    def outdent: -> void
+    def newline: -> void
+    def emit_comment_for: (String key) -> void
   end
 
   class Decoder
     TERMINATORS: Array[String]
+    KEY_VALUE_BOUNDARY_TOKENS: Array[String]
+    SAFE_KEY_PATTERN: Regexp
+    INTEGER_PATTERN: Regexp
+    FLOAT_PATTERN: Regexp
 
     def initialize: (?symbolize_names: bool) -> void
     def decode: (String cton) -> untyped
@@ -54,7 +158,11 @@ module Cton
     private
     attr_reader symbolize_names: bool
     attr_reader scanner: StringScanner
+    attr_reader raw_string: String
 
+    def raise_error: (String message, ?suggestions: Array[String]?) -> bot
+    def calculate_location: (Integer pos) -> [Integer, Integer]
+    def extract_source_excerpt: (Integer pos, ?length: Integer) -> String
     def parse_document: -> Hash[untyped, untyped]
     def parse_value_for_key: -> untyped
     def parse_object: -> Hash[untyped, untyped]
@@ -66,7 +174,11 @@ module Cton
     def parse_scalar: (?allow_key_boundary: bool) -> untyped
     def scan_until_terminator: -> String?
     def scan_until_boundary_or_terminator: -> String?
+    def consume_slice: (Integer start_pos, Integer end_pos) -> String?
+    def find_terminator_position: (Integer start_pos) -> Integer
     def find_key_boundary: (Integer from_index) -> Integer?
+    def terminator?: (String char) -> bool
+    def boundary_start_allowed?: (String char) -> bool
     def convert_scalar: (String token) -> untyped
     def parse_string: -> String
     def parse_key_name: -> (String | Symbol)
@@ -74,6 +186,7 @@ module Cton
     def symbolize_keys: (Hash[untyped, untyped] row) -> Hash[untyped, untyped]
     def expect!: (String char) -> void
     def skip_ws: -> void
+    def skip_ws_and_comments: -> void
     def whitespace?: (String char) -> bool
     def key_ahead?: -> bool
     def safe_key_char?: (String? char) -> bool

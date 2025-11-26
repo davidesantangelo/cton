@@ -11,10 +11,11 @@ module Cton
     RESERVED_LITERALS = %w[true false null].freeze
     FLOAT_DECIMAL_PRECISION = Float::DIG
 
-    def initialize(separator: "\n", pretty: false, decimal_mode: :fast)
+    def initialize(separator: "\n", pretty: false, decimal_mode: :fast, comments: nil)
       @separator = separator || ""
       @pretty = pretty
       @decimal_mode = decimal_mode
+      @comments = comments || {}
       raise ArgumentError, "decimal_mode must be :fast or :precise" unless %i[fast precise].include?(@decimal_mode)
 
       @indent_level = 0
@@ -29,7 +30,7 @@ module Cton
 
     private
 
-    attr_reader :separator, :io, :pretty, :indent_level, :decimal_mode
+    attr_reader :separator, :io, :pretty, :indent_level, :decimal_mode, :comments
 
     def encode_root(value)
       case value
@@ -37,6 +38,7 @@ module Cton
         first = true
         value.each do |key, nested|
           io << separator unless first
+          emit_comment_for(key.to_s)
           encode_top_level_pair(key, nested)
           first = false
         end
@@ -51,6 +53,9 @@ module Cton
     end
 
     def encode_value(value, context:)
+      # Check type registry first for custom transformations
+      value = Cton.type_registry.transform(value) if Cton.type_registry.registered?(value.class)
+
       if defined?(Set) && value.is_a?(Set)
         value = value.to_a
       elsif defined?(OpenStruct) && value.is_a?(OpenStruct)
@@ -372,6 +377,15 @@ module Cton
 
     def newline
       io << "\n" << ("  " * indent_level)
+    end
+
+    def emit_comment_for(key)
+      comment = comments[key] || comments[key.to_sym]
+      return unless comment
+
+      comment.to_s.each_line do |line|
+        io << "# " << line.chomp << "\n"
+      end
     end
   end
 end

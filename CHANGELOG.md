@@ -5,6 +5,54 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2025-11-26
+
+### Added
+
+- **Comment Support**: CTON now supports single-line comments using `#` syntax. Comments are ignored during parsing, allowing for annotated data files.
+  - Decoder skips comments (from `#` to end of line) during parsing
+  - Encoder can emit comments via new `comments:` option: `Cton.dump(data, comments: { "key" => "description" })`
+
+- **Validation API**: New methods to validate CTON syntax without full parsing:
+  - `Cton.valid?(string)` returns `true` or `false`
+  - `Cton.validate(string)` returns a `ValidationResult` object with detailed error information
+  - `ValidationResult` includes `valid?`, `errors`, and `to_s` methods
+  - `ValidationError` includes `message`, `line`, `column`, and `source_excerpt`
+
+- **Token Statistics API**: Analyze and compare CTON vs JSON token efficiency:
+  - `Cton.stats(data)` returns a `Stats` object with comprehensive metrics
+  - `Cton.stats_hash(data)` returns stats as a Hash
+  - `Stats` includes `json_chars`, `cton_chars`, `savings_percent`, `estimated_json_tokens`, `estimated_cton_tokens`
+  - `Stats.compare(data)` compares multiple format variants (CTON, CTON inline, CTON pretty, JSON, JSON pretty)
+
+- **Custom Type Registry**: Register custom serializers for domain objects:
+  - `Cton.register_type(klass, as: :object) { |value| ... }` registers a type handler
+  - `Cton.unregister_type(klass)` removes a handler
+  - `Cton.clear_type_registry!` clears all handlers
+  - Supports `:object`, `:array`, and `:scalar` modes
+
+- **Enhanced CLI**: New command-line options:
+  - `--stats` / `-s`: Show token savings statistics comparing JSON vs CTON
+  - `--validate`: Validate CTON syntax without conversion
+  - `--minify` / `-m`: Output CTON without separators (fully inline)
+  - Improved error messages with line/column information and colored output
+
+- **Enhanced Error Reporting**: `ParseError` now includes structured location information:
+  - `line` and `column` attributes for precise error location
+  - `source_excerpt` showing context around the error
+  - `suggestions` array for helpful hints
+  - `to_h` method for programmatic error handling
+
+### Changed
+
+- **Decoder optimizations**: Pre-compiled frozen regex patterns (`SAFE_KEY_PATTERN`, `INTEGER_PATTERN`, `FLOAT_PATTERN`) for faster matching
+- **Encoder**: Now uses frozen regex constants for `SAFE_TOKEN` and `NUMERIC_TOKEN`
+- **RBS signatures**: Comprehensive type signatures for all new APIs
+
+### Fixed
+
+- **Comment handling**: Whitespace and comments are now properly skipped in all parsing contexts
+
 ## [0.3.0] - 2025-11-20
 
 ### Added
