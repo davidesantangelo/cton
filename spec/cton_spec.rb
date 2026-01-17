@@ -390,6 +390,12 @@ RSpec.describe Cton do
         Cton.dump({ "a" => 1 }, io: io)
         expect(io.string).to eq("a=1")
       end
+
+      it "streams output to IO" do
+        io = StringIO.new
+        Cton.dump_stream([{ "a" => 1 }, { "b" => 2 }], io)
+        expect(io.string).to eq("a=1\nb=2")
+      end
     end
   end
 
@@ -967,6 +973,12 @@ RSpec.describe Cton do
         inline = Cton.dump(data, separator: "")
         normal = Cton.dump(data)
         expect(inline.length).to be < normal.length
+      end
+
+      it "supports binary round-trip" do
+        data = { "a" => 1, "b" => [2, 3] }
+        binary = Cton.dump_binary(data)
+        expect(Cton.load_binary(binary)).to eq(data)
       end
     end
   end

@@ -20,17 +20,20 @@ module Cton
 
       @indent_level = 0
       @table_schema_cache = {}
+      @buffer = String.new
     end
 
     def encode(payload, io: nil)
       @io = io || StringIO.new
       encode_root(payload)
       @io.string if @io.is_a?(StringIO)
+    ensure
+      reset_buffer if buffer_available?
     end
 
     private
 
-    attr_reader :separator, :io, :pretty, :indent_level, :decimal_mode, :comments
+    attr_reader :separator, :io, :pretty, :indent_level, :decimal_mode, :comments, :buffer
 
     def encode_root(value)
       case value
@@ -331,7 +334,7 @@ module Cton
     end
 
     def fast_scalar_stream?(list)
-      !pretty && list.length > 4 && homogeneous_scalar_tokens?(list)
+      !pretty && buffer_available? && list.length > 4 && homogeneous_scalar_tokens?(list)
     end
 
     def homogeneous_scalar_tokens?(list)
@@ -357,12 +360,25 @@ module Cton
     end
 
     def fast_scalar_stream(list)
-      buffer = String.new
+      buffer = buffer_for
       list.each_with_index do |value, index|
         buffer << "," unless index.zero?
         buffer << scalar_to_string(value)
       end
       buffer
+    end
+
+    def buffer_for
+      buffer.clear
+      buffer
+    end
+
+    def reset_buffer
+      buffer.clear
+    end
+
+    def buffer_available?
+      !buffer.nil?
     end
 
     def indent

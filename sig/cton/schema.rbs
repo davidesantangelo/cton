@@ -1,0 +1,84 @@
+module Cton
+  module Schema
+    class Error
+      attr_reader path: String
+      attr_reader message: String
+      attr_reader expected: String?
+      attr_reader actual: String?
+
+      def initialize: (path: String, message: String, ?expected: String?, ?actual: String?) -> void
+      def to_s: -> String
+      def to_h: -> Hash[Symbol, untyped]
+    end
+
+    class Result
+      attr_reader errors: Array[Error]
+
+      def initialize: (?Array[Error] errors) -> void
+      def valid?: -> bool
+      def to_s: -> String
+    end
+
+    class Node
+      def validate: (untyped value, String path, Array[Error] errors) -> void
+    end
+
+    class AnySchema < Node
+    end
+
+    class NullableSchema < Node
+      def initialize: (Node inner) -> void
+    end
+
+    class OptionalSchema < Node
+      def initialize: (Node inner) -> void
+    end
+
+    class ScalarSchema < Node
+      def initialize: (?types: Array[Class], ?enum: Array[untyped]) -> void
+    end
+
+    class ObjectSchema < Node
+      def initialize: (required: Hash[String, Node], optional: Hash[String, Node], ?allow_extra: bool) -> void
+    end
+
+    class ArraySchema < Node
+      def initialize: (item_schema: Node?, ?length: Integer?, ?min: Integer?, ?max: Integer?) -> void
+    end
+
+    module DSL
+      def object: (?allow_extra: bool) { () -> untyped } -> ObjectSchema
+      def array: (?length: Integer?, ?min: Integer?, ?max: Integer?, ?of: Node?) { () -> untyped } -> ArraySchema
+      def nullable: (Node schema) -> NullableSchema
+      def optional: (Node schema) -> OptionalSchema
+      def any: -> AnySchema
+      def scalar: (*untyped types, ?enum: Array[untyped]) -> ScalarSchema
+      def enum: (*untyped values) -> ScalarSchema
+      def string: -> ScalarSchema
+      def integer: -> ScalarSchema
+      def float: -> ScalarSchema
+      def number: -> ScalarSchema
+      def boolean: -> ScalarSchema
+      def null: -> ScalarSchema
+    end
+
+    class Builder
+      include DSL
+    end
+
+    class ObjectBuilder < Builder
+      def key: (String name, ?Node schema) { () -> untyped } -> void
+      def optional: (String name, ?Node schema) { () -> untyped } -> void
+      def allow_extra_keys!: -> void
+      def to_schema: -> ObjectSchema
+    end
+
+    class ArrayBuilder < Builder
+      def items: (?Node schema) { () -> untyped } -> void
+      def of: (?Node schema) { () -> untyped } -> void
+      def to_schema: -> ArraySchema
+    end
+
+    def self.define: { () -> Node } -> Node
+  end
+end

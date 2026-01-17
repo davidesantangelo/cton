@@ -26,6 +26,12 @@ module Cton
   def self.unregister_type: (Class klass) -> void
   def self.clear_type_registry!: -> void
   def self.type_registry: -> TypeRegistry
+  def self.schema: { () -> Schema::Node } -> Schema::Node
+  def self.validate_schema: (untyped data, Schema::Node schema) -> Schema::Result
+  def self.load_stream: (IO io, ?separator: String, ?symbolize_names: bool) -> Enumerable[untyped]
+  def self.dump_stream: (Enumerable[untyped] enumerable, IO io, ?separator: String, **untyped) -> IO
+  def self.dump_binary: (untyped data, ?compress: bool, **untyped) -> String
+  def self.load_binary: (String binary) -> untyped
 
   class ValidationResult
     attr_reader errors: Array[ValidationError]
@@ -110,6 +116,7 @@ module Cton
     attr_reader indent_level: Integer
     attr_reader decimal_mode: Symbol
     attr_reader comments: Hash[String, String]
+    attr_reader buffer: String
 
     def encode_root: (untyped value) -> void
     def encode_top_level_pair: (String | Symbol key, untyped value) -> void
@@ -139,6 +146,9 @@ module Cton
     def homogeneous_scalar_tokens?: (Array[untyped] list) -> bool
     def token_does_not_require_quotes?: (untyped value) -> bool
     def fast_scalar_stream: (Array[untyped] list) -> String
+    def buffer_for: -> String
+    def reset_buffer: -> void
+    def buffer_available?: -> bool
     def indent: -> void
     def outdent: -> void
     def newline: -> void
@@ -149,8 +159,13 @@ module Cton
     TERMINATORS: Array[String]
     KEY_VALUE_BOUNDARY_TOKENS: Array[String]
     SAFE_KEY_PATTERN: Regexp
+    SAFE_KEY_CHAR_PATTERN: Regexp
+    TERMINATOR_REGEX: Regexp
     INTEGER_PATTERN: Regexp
     FLOAT_PATTERN: Regexp
+
+    def self.decode: (String cton, ?symbolize_names: bool) -> untyped
+    def self.scan_stream: (IO io, ?separator: String, ?symbolize_names: bool) -> Enumerable[untyped]
 
     def initialize: (?symbolize_names: bool) -> void
     def decode: (String cton) -> untyped

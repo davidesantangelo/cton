@@ -7,8 +7,19 @@ module Cton
     TERMINATORS = [",", ";", ")", "]", "}"].freeze
     KEY_VALUE_BOUNDARY_TOKENS = ["(", "[", "="].freeze
     SAFE_KEY_PATTERN = /[0-9A-Za-z_.:-]+/
+    SAFE_KEY_CHAR_PATTERN = /[0-9A-Za-z_.:-]/
+    SAFE_KEY_START_PATTERN = /[A-Za-z_.:-]/
+    TERMINATOR_REGEX = /[\s,;\)\]\}\(\[\{]/
     INTEGER_PATTERN = /\A-?(?:0|[1-9]\d*)\z/
     FLOAT_PATTERN = /\A-?(?:0|[1-9]\d*)(?:\.\d+)?(?:[eE][+-]?\d+)?\z/
+
+    def self.decode(cton, symbolize_names: false)
+      new(symbolize_names: symbolize_names).decode(cton)
+    end
+
+    def self.scan_stream(io, separator: "\n", symbolize_names: false)
+      StreamReader.new(io, separator: separator, symbolize_names: symbolize_names)
+    end
 
     def initialize(symbolize_names: false)
       @symbolize_names = symbolize_names
@@ -178,8 +189,6 @@ module Cton
       skip_ws_and_comments
       return parse_string if @scanner.peek(1) == '"'
 
-      @scanner.pos
-
       token = if allow_key_boundary
                 scan_until_boundary_or_terminator
               else
@@ -218,8 +227,7 @@ module Cton
       idx = start_pos
 
       while idx < len
-        char = str[idx]
-        break if terminator?(char)
+        break if str[idx].match?(TERMINATOR_REGEX)
 
         idx += 1
       end
@@ -252,12 +260,16 @@ module Cton
       nil
     end
 
+    def self.scan_stream(io, separator: "\n", symbolize_names: false)
+      StreamReader.new(io, separator: separator, symbolize_names: symbolize_names)
+    end
+
     def terminator?(char)
       TERMINATORS.include?(char) || whitespace?(char) || ["(", "[", "{"].include?(char)
     end
 
     def boundary_start_allowed?(char)
-      !char.nil? && char.match?(/[A-Za-z_.:-]/)
+      !char.nil? && char.match?(SAFE_KEY_START_PATTERN)
     end
 
     def convert_scalar(token)
@@ -362,7 +374,7 @@ module Cton
     end
 
     def safe_key_char?(char)
-      !char.nil? && char.match?(/[0-9A-Za-z_.:-]/)
+      !char.nil? && char.match?(SAFE_KEY_CHAR_PATTERN)
     end
 
     def integer?(token)

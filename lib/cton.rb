@@ -7,9 +7,13 @@ require_relative "cton/decoder"
 require_relative "cton/validator"
 require_relative "cton/stats"
 require_relative "cton/type_registry"
+require_relative "cton/schema"
+require_relative "cton/binary"
+require_relative "cton/stream"
 
 module Cton
   class Error < StandardError; end
+
   class EncodeError < Error; end
 
   # Enhanced ParseError with structured location information
@@ -118,5 +122,64 @@ module Cton
   # @return [Hash] Statistics hash
   def stats_hash(data)
     stats(data).to_h
+  end
+
+  # Define a schema using the DSL
+  #
+  # @example
+  #   schema = Cton.schema do
+  #     object do
+  #       key "user" do
+  #         object do
+  #           key "id", integer
+  #           key "name", string
+  #         end
+  #       end
+  #     end
+  #   end
+  def schema(&)
+    Schema.define(&)
+  end
+
+  # Validate data against a schema definition
+  #
+  # @param data [Object] data to validate
+  # @param schema [Cton::Schema::Node] schema definition
+  # @return [Cton::Schema::Result]
+  def validate_schema(data, schema)
+    errors = []
+    schema.validate(data, Schema::PATH_ROOT, errors)
+    Schema::Result.new(errors)
+  end
+
+  # Stream parse CTON documents from an IO
+  #
+  # @param io [IO] stream containing one or more CTON documents
+  # @yieldparam [Object] decoded document
+  def load_stream(io, separator: "\n", symbolize_names: false, &block)
+    stream = StreamReader.new(io, separator: separator, symbolize_names: symbolize_names)
+    return stream.to_enum(:each) unless block_given?
+
+    stream.each(&block)
+  end
+
+  # Stream encode CTON documents to an IO
+  #
+  # @param enumerable [Enumerable] objects to encode
+  # @param io [IO] output stream
+  def dump_stream(enumerable, io, separator: "\n", **options)
+    writer = StreamWriter.new(io, separator: separator, **options)
+    enumerable.each { |value| writer.write(value) }
+    io
+  end
+
+  # Encode to CTON-B (binary) format
+  def dump_binary(data, compress: true, **options)
+    Binary.dump(data, compress: compress, **options)
+  end
+
+  # Decode from CTON-B (binary) format
+  def load_binary(binary)
+    Binary.load(binary)
   end
 end

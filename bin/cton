@@ -1,6 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
+$LOAD_PATH.unshift(File.expand_path("../lib", __dir__))
 require "cton"
 require "json"
 require "optparse"
@@ -13,7 +14,12 @@ options = {
   stats: false,
   validate: false,
   minify: false,
-  separator: "\n"
+  separator: "\n",
+  stream: false,
+  schema: nil,
+  to_binary: false,
+  from_binary: false,
+  binary_compress: true
 }
 
 parser = OptionParser.new do |opts|
@@ -30,6 +36,20 @@ parser = OptionParser.new do |opts|
     options[:mode] = :to_cton
   end
 
+  opts.on("--to-binary", "Convert JSON to CTON-B") do
+    options[:mode] = :to_cton
+    options[:to_binary] = true
+  end
+
+  opts.on("--from-binary", "Convert CTON-B to JSON") do
+    options[:mode] = :to_json
+    options[:from_binary] = true
+  end
+
+  opts.on("--no-compress", "Disable compression for CTON-B") do
+    options[:binary_compress] = false
+  end
+
   opts.on("-p", "--pretty", "Pretty print output") do
     options[:pretty] = true
   end
@@ -37,6 +57,14 @@ parser = OptionParser.new do |opts|
   opts.on("-m", "--minify", "Minify CTON output (remove separators)") do
     options[:minify] = true
     options[:separator] = ""
+  end
+
+  opts.on("--stream", "Process newline-delimited documents") do
+    options[:stream] = true
+  end
+
+  opts.on("--schema FILE", "Validate decoded data against schema file") do |file|
+    options[:schema] = file
   end
 
   opts.on("-o", "--output FILE", "Output file") do |file|
@@ -71,14 +99,66 @@ end
 parser.parse!
 
 input_file = ARGV.first
-input_content = if input_file
-                  File.read(input_file)
-                else
-                  $stdin.read
-                end
+
+if options[:stream] && (options[:stats] || options[:validate])
+  warn "Error: --stream cannot be combined with --stats or --validate"
+  exit 1
+end
+
+if options[:to_binary] && options[:from_binary]
+  warn "Error: choose either --to-binary or --from-binary"
+  exit 1
+end
+
+def read_input(input_file, binary: false)
+  if input_file
+    binary ? File.binread(input_file) : File.read(input_file)
+  else
+    binary ? $stdin.read.b : $stdin.read
+  end
+end
+
+def load_schema(path)
+  raise "Schema file not found" unless path
+
+  require File.expand_path(path)
+
+  if Object.const_defined?(:CTON_SCHEMA)
+    Object.const_get(:CTON_SCHEMA)
+  elsif Object.respond_to?(:cton_schema)
+    Object.cton_schema
+  else
+    raise "Schema file must define CTON_SCHEMA or cton_schema"
+  end
+end
+
+def write_output(path, payload, binary: false)
+  if path
+    if binary
+      File.binwrite(path, payload)
+    else
+      File.write(path, payload)
+    end
+    puts "Output written to #{path}"
+  else
+    if binary
+      $stdout.binmode
+      $stdout.write(payload)
+    else
+      puts payload
+    end
+  end
+end
+
+input_content = read_input(input_file, binary: options[:from_binary])
 
 # Handle validation mode
 if options[:validate]
+  if options[:from_binary]
+    warn "Error: --validate expects CTON text input"
+    exit 1
+  end
+
   result = Cton.validate(input_content)
   if result.valid?
     puts "\e[32m✓ Valid CTON\e[0m"
@@ -95,7 +175,6 @@ end
 
 # Detect mode if auto
 if options[:mode] == :auto
-  # Simple heuristic: if it starts with { or [, it's likely JSON.
   stripped = input_content.strip
   options[:mode] = if stripped.start_with?("{") || stripped.start_with?("[")
                      :to_cton
@@ -104,19 +183,22 @@ if options[:mode] == :auto
                    end
 end
 
+schema = options[:schema] ? load_schema(options[:schema]) : nil
+
 # Handle stats mode
 if options[:stats]
   begin
-    data = if options[:mode] == :to_cton
-             JSON.parse(input_content)
-           else
-             Cton.load(input_content)
-           end
+    if options[:from_binary]
+      data = Cton.load_binary(input_content)
+    elsif options[:mode] == :to_cton
+      data = JSON.parse(input_content)
+    else
+      data = Cton.load(input_content)
+    end
 
     stats = Cton.stats(data)
     puts stats
 
-    # Also show comparison table
     puts ""
     puts "Format Comparison:"
     puts "-" * 50
@@ -135,27 +217,77 @@ if options[:stats]
   end
 end
 
+if options[:stream]
+  output_io = options[:output] ? File.open(options[:output], "w") : $stdout
+  begin
+    input_content.each_line do |line|
+      next if line.strip.empty?
+
+      data = if options[:from_binary]
+               Cton.load_binary(line)
+             elsif options[:mode] == :to_cton
+               JSON.parse(line)
+             else
+               Cton.load(line)
+             end
+
+      if schema
+        result = Cton.validate_schema(data, schema)
+        unless result.valid?
+          warn result.to_s
+          exit 1
+        end
+      end
+
+      if options[:to_binary]
+        payload = Cton.dump_binary(data, compress: options[:binary_compress])
+        output_io.binmode
+        output_io.write(payload)
+        output_io.write("\n")
+      elsif options[:mode] == :to_cton
+        output_io.puts Cton.dump(data, pretty: options[:pretty], separator: options[:separator])
+      else
+        output_io.puts(options[:pretty] ? JSON.pretty_generate(data) : JSON.generate(data))
+      end
+    end
+  ensure
+    output_io.close if options[:output]
+  end
+  exit 0
+end
+
 result = nil
 
 begin
-  if options[:mode] == :to_cton
-    data = JSON.parse(input_content)
-    result = Cton.dump(data, pretty: options[:pretty], separator: options[:separator])
-  else
-    data = Cton.load(input_content)
-    result = if options[:pretty]
-               JSON.pretty_generate(data)
-             else
-               JSON.generate(data)
-             end
+  data = if options[:from_binary]
+           Cton.load_binary(input_content)
+         elsif options[:mode] == :to_cton
+           JSON.parse(input_content)
+         else
+           Cton.load(input_content)
+         end
+
+  if schema
+    validation = Cton.validate_schema(data, schema)
+    unless validation.valid?
+      warn validation.to_s
+      exit 1
+    end
   end
 
-  if options[:output]
-    File.write(options[:output], result)
-    puts "Output written to #{options[:output]}"
-  else
-    puts result
+  if options[:to_binary]
+    result = Cton.dump_binary(data, compress: options[:binary_compress])
+    write_output(options[:output], result, binary: true)
+    exit 0
   end
+
+  result = if options[:mode] == :to_cton
+             Cton.dump(data, pretty: options[:pretty], separator: options[:separator])
+           else
+             options[:pretty] ? JSON.pretty_generate(data) : JSON.generate(data)
+           end
+
+  write_output(options[:output], result)
 rescue Cton::ParseError => e
   warn "\e[31mParse Error:\e[0m #{e.message}"
   warn "  Line #{e.line}, Column #{e.column}" if e.line && e.column

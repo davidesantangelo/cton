@@ -1,0 +1,13 @@
+module Cton
+  class StreamReader
+    include Enumerable[untyped]
+
+    def initialize: (IO io, ?separator: String, ?symbolize_names: bool) -> void
+    def each: { (untyped) -> void } -> void
+  end
+
+  class StreamWriter
+    def initialize: (IO io, ?separator: String, **untyped) -> void
+    def write: (untyped value) -> void
+  end
+end

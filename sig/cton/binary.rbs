@@ -1,0 +1,12 @@
+module Cton
+  module Binary
+    MAGIC: String
+    VERSION: Integer
+    FLAG_COMPRESSED: Integer
+
+    def self.dump: (untyped data, ?compress: bool, **untyped) -> String
+    def self.load: (String binary) -> untyped
+    def self.encode_varint: (Integer value) -> String
+    def self.decode_varint: (String source, Integer offset) -> [Integer, Integer]
+  end
+end
